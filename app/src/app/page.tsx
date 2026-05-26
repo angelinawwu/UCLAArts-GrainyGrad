@@ -2,9 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// 3:2 export ratio. Internal coordinate system.
+// Internal coordinate system. The shape editor always works in this 1500×1000
+// space; presets below crop to a sub-rectangle of it for the visible canvas
+// + export.
 const W = 1500;
 const H = 1000;
+
+type Proportion = {
+  key: string;
+  label: string;
+  // [x, y, w, h] within the internal 1500×1000 coordinate system.
+  vb: [number, number, number, number];
+};
+const PROPORTIONS: Proportion[] = [
+  { key: "3-2", label: "1500 × 1000 (3:2)", vb: [0, 0, 1500, 1000] },
+  // 1000:320 ≈ 3.125:1. Center-crop a 1500×480 slice of the working area.
+  { key: "banner", label: "1000 × 320 (banner)", vb: [0, 260, 1500, 480] },
+];
 
 type Pt = { x: number; y: number };
 type Anchor = { p: Pt; hIn: Pt; hOut: Pt };
@@ -21,6 +35,7 @@ type Drag =
   | { kind: "anchor"; shapeId: string; idx: number; start: Pt; orig: Anchor }
   | { kind: "handle"; shapeId: string; idx: number; which: "in" | "out"; start: Pt; orig: Pt; mirrorOrig: Pt }
   | { kind: "pen-new"; shapeId: string; idx: number; start: Pt }
+  | { kind: "shape"; shapeId: string; start: Pt; origAnchors: Anchor[] }
   | null;
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -90,12 +105,22 @@ function makeBlob(cx: number, cy: number, rx: number, ry: number, color: string,
   return { id: uid(), color, anchors, closed: true };
 }
 
-// Default scene: yellow background + indigo band + magenta band
-// (matches the Figma reference node 124:248).
-const initialShapes = (): Shape[] => [
-  wavyBand(280, "#5640C4", { waves: 1.4, amp: 130, phase: 0.4 }),
-  wavyBand(620, "#DE1B63", { waves: 1.2, amp: 150, phase: 1.7 }),
-];
+// Default scene per proportion. Yellow background + indigo band + magenta
+// band; bands flatten + recenter on the banner preset so they sit inside
+// its narrower vertical slice.
+const defaultShapesFor = (key: string): Shape[] => {
+  if (key === "banner") {
+    // Banner viewBox is y 260–740 (centre ≈ 500). Use tighter amplitude.
+    return [
+      wavyBand(420, "#5640C4", { waves: 1.4, amp: 40, phase: 0.4 }),
+      wavyBand(590, "#DE1B63", { waves: 1.2, amp: 45, phase: 1.7 }),
+    ];
+  }
+  return [
+    wavyBand(280, "#5640C4", { waves: 1.4, amp: 130, phase: 0.4 }),
+    wavyBand(620, "#DE1B63", { waves: 1.2, amp: 150, phase: 1.7 }),
+  ];
+};
 
 function pathD(s: Shape): string {
   const a = s.anchors;
@@ -117,7 +142,7 @@ function mirror(p: Pt, anchor: Pt): Pt {
 
 export default function Page() {
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const [shapes, setShapes] = useState<Shape[]>(() => initialShapes());
+  const [shapes, setShapes] = useState<Shape[]>(() => defaultShapesFor("3-2"));
   const [bg, setBg] = useState("#F2D43B");
   const [tool, setTool] = useState<Tool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -126,6 +151,9 @@ export default function Page() {
   const [grain, setGrain] = useState(0.55);
   const [grainScale, setGrainScale] = useState(1.6);
   const [exportSize, setExportSize] = useState(1500);
+  const [propKey, setPropKey] = useState<string>("3-2");
+  const proportion = PROPORTIONS.find((p) => p.key === propKey) ?? PROPORTIONS[0];
+  const [vbX, vbY, vbW, vbH] = proportion.vb;
   const [toast, setToast] = useState<string | null>(null);
 
   // Pen drafting state: id of the currently-being-built shape (open).
@@ -224,6 +252,22 @@ export default function Page() {
               hOut: { x: o.hOut.x + dx, y: o.hOut.y + dy },
             };
             return { ...s, anchors: next };
+          }),
+        );
+      } else if (drag.kind === "shape") {
+        const dx = pt.x - drag.start.x;
+        const dy = pt.y - drag.start.y;
+        setShapes((prev) =>
+          prev.map((s) => {
+            if (s.id !== drag.shapeId) return s;
+            return {
+              ...s,
+              anchors: drag.origAnchors.map((a) => ({
+                p: { x: a.p.x + dx, y: a.p.y + dy },
+                hIn: { x: a.hIn.x + dx, y: a.hIn.y + dy },
+                hOut: { x: a.hOut.x + dx, y: a.hOut.y + dy },
+              })),
+            };
           }),
         );
       } else if (drag.kind === "handle") {
@@ -381,10 +425,10 @@ export default function Page() {
     setShapes((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   };
 
-  // ---- Export to canvas (3:2) ----
+  // ---- Export to canvas (matches the chosen Proportions) ----
   const renderToCanvas = useCallback(async (): Promise<HTMLCanvasElement> => {
     const exportW = exportSize;
-    const exportH = Math.round((exportSize * 2) / 3);
+    const exportH = Math.round((exportSize * vbH) / vbW);
     const canvas = document.createElement("canvas");
     canvas.width = exportW;
     canvas.height = exportH;
@@ -404,7 +448,7 @@ export default function Page() {
       .map((s) => `<path d="${pathD(s)}" fill="${s.color}" />`)
       .join("\n      ");
     const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${exportW}" height="${exportH}">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vbX} ${vbY} ${vbW} ${vbH}" width="${exportW}" height="${exportH}">
   <defs>
     <filter id="blur_export" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur stdDeviation="${blur}" />
@@ -416,7 +460,7 @@ export default function Page() {
     </filter>
   </defs>
   <g filter="url(#grainy_export)">
-    <rect width="${W}" height="${H}" fill="${bg}" />
+    <rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="${bg}" />
     <g filter="url(#blur_export)">
       ${pathsSvg}
     </g>
@@ -436,7 +480,7 @@ export default function Page() {
     URL.revokeObjectURL(url);
 
     return canvas;
-  }, [shapes, bg, blur, grain, grainScale, exportSize]);
+  }, [shapes, bg, blur, grain, grainScale, exportSize, vbX, vbY, vbW, vbH]);
 
   const onCopy = async () => {
     try {
@@ -530,12 +574,12 @@ export default function Page() {
       {/* Canvas area */}
       <main className="flex-1 min-w-0 flex items-center justify-center p-6">
         <div
-          className="relative w-full max-w-[1200px] aspect-[3/2] rounded-xl overflow-hidden ring-1 ring-white/10 shadow-2xl"
-          style={{ cursor: tool === "pen" ? "crosshair" : "default" }}
+          className="relative w-full max-w-[1200px] rounded-xl overflow-hidden ring-1 ring-white/10 shadow-2xl"
+          style={{ cursor: tool === "pen" ? "crosshair" : "default", aspectRatio: `${vbW} / ${vbH}` }}
         >
           <svg
             ref={svgRef}
-            viewBox={`0 0 ${W} ${H}`}
+            viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
             preserveAspectRatio="none"
             className="absolute inset-0 w-full h-full"
             onMouseDown={onCanvasMouseDown}
@@ -572,7 +616,7 @@ export default function Page() {
             {/* Smooth gradient (bg + blurred shapes) wrapped in the grainy
                 overlay filter -> css-tricks-style grainy gradient. */}
             <g filter="url(#grainyFilter)">
-              <rect width={W} height={H} fill={bg} />
+              <rect x={vbX} y={vbY} width={vbW} height={vbH} fill={bg} />
               <g filter="url(#blurFilter)">
                 {shapes.map((s) =>
                   s.closed && s.anchors.length >= 2 ? (
@@ -597,6 +641,15 @@ export default function Page() {
                       if (tool === "select") {
                         e.stopPropagation();
                         setSelectedId(s.id);
+                        if (e.metaKey || e.ctrlKey) {
+                          const start = toSvg(e.clientX, e.clientY);
+                          setDrag({
+                            kind: "shape",
+                            shapeId: s.id,
+                            start,
+                            origAnchors: s.anchors,
+                          });
+                        }
                       }
                     }}
                     onClick={(e) => onPathClick(e, s.id)}
@@ -696,7 +749,7 @@ export default function Page() {
       <aside className="w-80 shrink-0 border-l border-white/10 overflow-y-auto p-4 space-y-5">
         <div>
           <h1 className="text-base font-semibold">Grainy Gradient</h1>
-          <p className="text-xs text-white/50">3:2 wavy gradient maker</p>
+          <p className="text-xs text-white/50">Wavy gradient maker</p>
         </div>
 
         <div className="flex gap-2">
@@ -727,16 +780,39 @@ export default function Page() {
           <Row label="Grain scale">
             <Slider value={grainScale} min={0.4} max={6} step={0.1} onChange={setGrainScale} />
           </Row>
+          <Row label="Proportions">
+            <select
+              value={propKey}
+              onChange={(e) => {
+                const next = e.target.value;
+                setPropKey(next);
+                setShapes(defaultShapesFor(next));
+                setSelectedId(null);
+                setDraftId(null);
+              }}
+              className="bg-white/5 text-white text-xs rounded px-2 py-1 border border-white/10"
+            >
+              {PROPORTIONS.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </Row>
           <Row label="Export size">
             <select
               value={exportSize}
               onChange={(e) => setExportSize(parseInt(e.target.value))}
               className="bg-white/5 text-white text-xs rounded px-2 py-1 border border-white/10"
             >
-              <option value={900}>900 × 600</option>
-              <option value={1500}>1500 × 1000</option>
-              <option value={2400}>2400 × 1600</option>
-              <option value={3000}>3000 × 2000</option>
+              {[600, 1000, 1500, 2400, 3000].map((w) => {
+                const h = Math.round((w * vbH) / vbW);
+                return (
+                  <option key={w} value={w}>
+                    {w} × {h}
+                  </option>
+                );
+              })}
             </select>
           </Row>
         </Section>
