@@ -25,16 +25,50 @@ type Drag =
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-const PALETTE = [
-  "#7c3aed",
-  "#ec4899",
-  "#f97316",
-  "#fbbf24",
-  "#22d3ee",
-  "#10b981",
-  "#3b82f6",
-  "#ef4444",
+// Brand palette (UCLA Arts donor stickers)
+const BRAND_SWATCHES = [
+  { name: "Indigo", hex: "#5640C4" },
+  { name: "Sky", hex: "#96D4E4" },
+  { name: "Magenta", hex: "#DE1B63" },
+  { name: "Yellow", hex: "#F2D43B" },
 ];
+const PALETTE = BRAND_SWATCHES.map((s) => s.hex);
+
+// A wide wavy horizontal band whose top edge undulates and whose bottom
+// edge extends past the canvas. With heavy blur these stack into smooth
+// banded gradients (like the Figma reference).
+function wavyBand(
+  yTop: number,
+  color: string,
+  opts: { waves?: number; amp?: number; phase?: number; segments?: number; overshoot?: number } = {},
+): Shape {
+  const { waves = 1.5, amp = 110, phase = 0, segments = 8, overshoot = 220 } = opts;
+  const anchors: Anchor[] = [];
+  const totalW = W + overshoot * 2;
+  const dx = totalW / segments / 3;
+  for (let i = 0; i <= segments; i++) {
+    const x = -overshoot + (totalW * i) / segments;
+    const y = yTop + Math.sin((i / segments) * Math.PI * 2 * waves + phase) * amp;
+    anchors.push({
+      p: { x, y },
+      hIn: { x: x - dx, y },
+      hOut: { x: x + dx, y },
+    });
+  }
+  // Close along the bottom (well below canvas)
+  const yBot = H + overshoot;
+  anchors.push({
+    p: { x: W + overshoot, y: yBot },
+    hIn: { x: W + overshoot, y: yBot - 100 },
+    hOut: { x: W + overshoot, y: yBot },
+  });
+  anchors.push({
+    p: { x: -overshoot, y: yBot },
+    hIn: { x: -overshoot, y: yBot },
+    hOut: { x: -overshoot, y: yBot - 100 },
+  });
+  return { id: uid(), color, anchors, closed: true };
+}
 
 function makeBlob(cx: number, cy: number, rx: number, ry: number, color: string, points = 6): Shape {
   const anchors: Anchor[] = [];
@@ -56,11 +90,11 @@ function makeBlob(cx: number, cy: number, rx: number, ry: number, color: string,
   return { id: uid(), color, anchors, closed: true };
 }
 
+// Default scene: yellow background + indigo band + magenta band
+// (matches the Figma reference node 124:248).
 const initialShapes = (): Shape[] => [
-  makeBlob(380, 380, 520, 420, "#a78bfa"),
-  makeBlob(1120, 420, 480, 420, "#f472b6"),
-  makeBlob(720, 760, 560, 380, "#fb923c"),
-  makeBlob(1180, 820, 380, 320, "#fde047"),
+  wavyBand(280, "#5640C4", { waves: 1.4, amp: 130, phase: 0.4 }),
+  wavyBand(620, "#DE1B63", { waves: 1.2, amp: 150, phase: 1.7 }),
 ];
 
 function pathD(s: Shape): string {
@@ -84,7 +118,7 @@ function mirror(p: Pt, anchor: Pt): Pt {
 export default function Page() {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [shapes, setShapes] = useState<Shape[]>(() => initialShapes());
-  const [bg, setBg] = useState("#0b0420");
+  const [bg, setBg] = useState("#F2D43B");
   const [tool, setTool] = useState<Tool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag>(null);
@@ -803,20 +837,40 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 function ColorInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const norm = value.toUpperCase();
   return (
-    <div className="flex items-center gap-2">
-      <input
-        type="color"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-7 h-7 rounded cursor-pointer bg-transparent border border-white/10"
-      />
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-20 bg-white/5 text-white text-xs rounded px-2 py-1 border border-white/10 font-mono"
-      />
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-7 h-7 rounded cursor-pointer bg-transparent border border-white/10"
+        />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-20 bg-white/5 text-white text-xs rounded px-2 py-1 border border-white/10 font-mono"
+        />
+      </div>
+      <div className="flex items-center gap-1">
+        {BRAND_SWATCHES.map((s) => {
+          const active = s.hex.toUpperCase() === norm;
+          return (
+            <button
+              key={s.hex}
+              type="button"
+              title={`${s.name} — ${s.hex}`}
+              onClick={() => onChange(s.hex)}
+              className={`w-5 h-5 rounded-sm ring-1 transition-transform duration-200 hover:scale-110 ${
+                active ? "ring-white ring-2" : "ring-white/20"
+              }`}
+              style={{ background: s.hex }}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
