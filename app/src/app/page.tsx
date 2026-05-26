@@ -500,7 +500,19 @@ export default function Page() {
         <ToolBtn
           label="Pen (P)"
           active={tool === "pen"}
-          onClick={() => setTool("pen")}
+          onClick={() => {
+            if (tool === "pen") {
+              if (draftId) {
+                setShapes((prev) =>
+                  prev.map((s) => (s.id === draftId ? { ...s, closed: s.anchors.length >= 2 } : s)),
+                );
+                setDraftId(null);
+              }
+              setTool("select");
+            } else {
+              setTool("pen");
+            }
+          }}
         >
           <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M3 21l4-1 11-11-3-3L4 17l-1 4z" />
@@ -775,7 +787,7 @@ export default function Page() {
               .map(({ s, i }) => (
                 <li key={s.id}>
                   <button
-                    onClick={() => setSelectedId(s.id)}
+                    onClick={() => setSelectedId((cur) => (cur === s.id ? null : s.id))}
                     className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors duration-200 ${
                       selectedId === s.id ? "bg-white/15" : "hover:bg-white/5"
                     }`}
