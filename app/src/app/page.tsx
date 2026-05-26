@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // 3:2 export ratio. Internal coordinate system.
 const W = 1500;
@@ -391,20 +391,35 @@ export default function Page() {
     const ctx = canvas.getContext("2d")!;
 
     // Build a clean SVG (without editor chrome) and rasterize.
-    const filterId = "blurFilter_export";
+    // CSS-Tricks "grainy gradient" recipe:
+    //   1. Render the smooth blurred gradient (bg + blurred shapes)
+    //   2. Generate fine fractalNoise via feTurbulence
+    //   3. feBlend mode="overlay" the noise over the gradient
+    //   4. Mix the overlayed result back with the source by `grain`
+    //      (so grain=0 -> clean gradient, grain=1 -> full overlay)
+    const visibleShapes = shapes.filter((s) => s.closed && s.anchors.length >= 2);
+    const noiseFreq = 0.9 / Math.max(0.4, grainScale);
+    const grainMix = Math.max(0, Math.min(1, grain));
+    const pathsSvg = visibleShapes
+      .map((s) => `<path d="${pathD(s)}" fill="${s.color}" />`)
+      .join("\n      ");
     const svg = `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${exportW}" height="${exportH}">
   <defs>
-    <filter id="${filterId}" x="-20%" y="-20%" width="140%" height="140%">
+    <filter id="blur_export" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur stdDeviation="${blur}" />
     </filter>
+    <filter id="grainy_export" x="0%" y="0%" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="${noiseFreq}" numOctaves="2" stitchTiles="stitch" seed="3" result="noise" />
+      <feBlend in="noise" in2="SourceGraphic" mode="overlay" result="overlayed" />
+      <feComposite in="overlayed" in2="SourceGraphic" operator="arithmetic" k1="0" k2="${grainMix}" k3="${1 - grainMix}" k4="0" />
+    </filter>
   </defs>
-  <rect width="${W}" height="${H}" fill="${bg}" />
-  <g filter="url(#${filterId})">
-    ${shapes
-      .filter((s) => s.closed && s.anchors.length >= 2)
-      .map((s) => `<path d="${pathD(s)}" fill="${s.color}" />`)
-      .join("\n")}
+  <g filter="url(#grainy_export)">
+    <rect width="${W}" height="${H}" fill="${bg}" />
+    <g filter="url(#blur_export)">
+      ${pathsSvg}
+    </g>
   </g>
 </svg>`.trim();
 
@@ -419,29 +434,6 @@ export default function Page() {
     });
     ctx.drawImage(img, 0, 0, exportW, exportH);
     URL.revokeObjectURL(url);
-
-    // Grain overlay (procedural, monochrome luminance noise).
-    if (grain > 0) {
-      const noise = ctx.getImageData(0, 0, exportW, exportH);
-      const data = noise.data;
-      const amp = grain * 80; // up to ±40
-      // grainScale: cell size in pixels (1 = pixel-fine). Approximate by stepping.
-      const step = Math.max(1, Math.round(grainScale));
-      for (let y = 0; y < exportH; y += step) {
-        for (let x = 0; x < exportW; x += step) {
-          const n = (Math.random() - 0.5) * amp;
-          for (let dy = 0; dy < step && y + dy < exportH; dy++) {
-            for (let dx = 0; dx < step && x + dx < exportW; dx++) {
-              const i = ((y + dy) * exportW + (x + dx)) * 4;
-              data[i] = Math.max(0, Math.min(255, data[i] + n));
-              data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + n));
-              data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + n));
-            }
-          }
-        }
-      }
-      ctx.putImageData(noise, 0, 0);
-    }
 
     return canvas;
   }, [shapes, bg, blur, grain, grainScale, exportSize]);
@@ -492,8 +484,6 @@ export default function Page() {
     setSelectedId(s.id);
   };
 
-  const filterId = useMemo(() => `blur_${uid()}`, []);
-
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-neutral-950 text-neutral-100 select-none">
       {/* Left toolbar */}
@@ -542,46 +532,45 @@ export default function Page() {
             }}
           >
             <defs>
-              <filter id={filterId} x="-20%" y="-20%" width="140%" height="140%">
+              <filter id="blurFilter" x="-20%" y="-20%" width="140%" height="140%">
                 <feGaussianBlur stdDeviation={blur} />
               </filter>
-              <filter id="grainFilter" x="0" y="0" width="100%" height="100%">
+              <filter id="grainyFilter" x="0%" y="0%" width="100%" height="100%">
                 <feTurbulence
                   type="fractalNoise"
-                  baseFrequency={0.9 / Math.max(0.5, grainScale)}
+                  baseFrequency={0.9 / Math.max(0.4, grainScale)}
                   numOctaves={2}
+                  seed={3}
                   stitchTiles="stitch"
+                  result="noise"
                 />
-                <feColorMatrix
-                  type="matrix"
-                  values={`0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 ${grain} 0`}
+                <feBlend in="noise" in2="SourceGraphic" mode="overlay" result="overlayed" />
+                <feComposite
+                  in="overlayed"
+                  in2="SourceGraphic"
+                  operator="arithmetic"
+                  k1={0}
+                  k2={grain}
+                  k3={1 - grain}
+                  k4={0}
                 />
               </filter>
             </defs>
 
-            {/* Background */}
-            <rect width={W} height={H} fill={bg} />
-
-            {/* Blurred shapes */}
-            <g filter={`url(#${filterId})`}>
-              {shapes.map((s) => (
-                <path
-                  key={s.id}
-                  d={pathD(s)}
-                  fill={s.closed ? s.color : "none"}
-                  stroke={!s.closed ? s.color : "none"}
-                  strokeWidth={!s.closed ? 4 : 0}
-                />
-              ))}
+            {/* Smooth gradient (bg + blurred shapes) wrapped in the grainy
+                overlay filter -> css-tricks-style grainy gradient. */}
+            <g filter="url(#grainyFilter)">
+              <rect width={W} height={H} fill={bg} />
+              <g filter="url(#blurFilter)">
+                {shapes.map((s) =>
+                  s.closed && s.anchors.length >= 2 ? (
+                    <path key={s.id} d={pathD(s)} fill={s.color} />
+                  ) : (
+                    <path key={s.id} d={pathD(s)} fill="none" stroke={s.color} strokeWidth={4} />
+                  ),
+                )}
+              </g>
             </g>
-
-            {/* Grain overlay (preview). Uses overlay blend for more punch. */}
-            <rect
-              width={W}
-              height={H}
-              filter="url(#grainFilter)"
-              style={{ mixBlendMode: "overlay", pointerEvents: "none" }}
-            />
 
             {/* Editor overlay: invisible hit paths + anchors */}
             <g>
