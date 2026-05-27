@@ -155,11 +155,22 @@ export default function Page() {
   const proportion = PROPORTIONS.find((p) => p.key === propKey) ?? PROPORTIONS[0];
   const [vbX, vbY, vbW, vbH] = proportion.vb;
   const [toast, setToast] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   // Pen drafting state: id of the currently-being-built shape (open).
   const [draftId, setDraftId] = useState<string | null>(null);
 
   const selected = shapes.find((s) => s.id === selectedId) ?? null;
+
+  // Detect mobile screens
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -530,8 +541,17 @@ export default function Page() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-neutral-950 text-neutral-100 select-none">
-      {/* Left toolbar */}
-      <aside className="w-14 shrink-0 border-r border-white/10 flex flex-col items-center py-3 gap-2">
+      {isMobile ? (
+        <div className="flex items-center justify-center w-full h-full p-6">
+          <div className="text-center max-w-md">
+            <h1 className="text-2xl font-medium mb-3">Sorry, this application does not work on mobile.</h1>
+            <p className="text-white/60">Please try on a desktop device for the best experience.</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Left toolbar */}
+          <aside className="w-14 shrink-0 border-r border-white/10 flex flex-col items-center py-3 gap-2">
         <ToolBtn
           label="Select (V)"
           active={tool === "select"}
@@ -748,7 +768,7 @@ export default function Page() {
       {/* Right inspector */}
       <aside className="w-80 shrink-0 border-l border-white/10 overflow-y-auto p-4 space-y-5">
         <div>
-          <h1 className="text-base font-semibold">Grainy Gradient</h1>
+          <h1 className="text-base font-medium">Grainy Gradient</h1>
           <p className="text-xs text-white/50">Wavy gradient maker</p>
         </div>
 
@@ -891,7 +911,9 @@ export default function Page() {
           </ul>
         </Section>
       </aside>
-    </div>
+    </>
+  )}
+  </div>
   );
 }
 
