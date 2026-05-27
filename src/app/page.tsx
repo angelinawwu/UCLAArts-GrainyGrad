@@ -592,7 +592,14 @@ export default function Page() {
       </aside>
 
       {/* Canvas area */}
-      <main className="flex-1 min-w-0 flex items-center justify-center p-6">
+      <main
+        className="flex-1 min-w-0 flex items-center justify-center p-6"
+        onClick={(e) => {
+          if (tool === "select" && !(e.target as Element).closest(".relative")) {
+            setSelectedId(null);
+          }
+        }}
+      >
         <div
           className="relative w-full max-w-[1200px] rounded-xl overflow-hidden ring-1 ring-white/10 shadow-2xl"
           style={{ cursor: tool === "pen" ? "crosshair" : "default", aspectRatio: `${vbW} / ${vbH}` }}
@@ -636,7 +643,19 @@ export default function Page() {
             {/* Smooth gradient (bg + blurred shapes) wrapped in the grainy
                 overlay filter -> css-tricks-style grainy gradient. */}
             <g filter="url(#grainyFilter)">
-              <rect x={vbX} y={vbY} width={vbW} height={vbH} fill={bg} />
+              <rect
+                x={vbX}
+                y={vbY}
+                width={vbW}
+                height={vbH}
+                fill={bg}
+                onClick={(e) => {
+                  if (tool === "select") {
+                    e.stopPropagation();
+                    setSelectedId(null);
+                  }
+                }}
+              />
               <g filter="url(#blurFilter)">
                 {shapes.map((s) =>
                   s.closed && s.anchors.length >= 2 ? (
@@ -766,7 +785,14 @@ export default function Page() {
       </main>
 
       {/* Right inspector */}
-      <aside className="w-80 shrink-0 border-l border-white/10 overflow-y-auto p-4 space-y-5">
+      <aside
+        className="w-80 shrink-0 border-l border-white/10 overflow-y-auto p-4 space-y-5"
+        onClick={(e) => {
+          if (tool === "select" && !(e.target as Element).closest("button, input, select")) {
+            setSelectedId(null);
+          }
+        }}
+      >
         <div>
           <h1 className="text-base font-medium">Grainy Gradient</h1>
           <p className="text-xs text-white/50">Wavy gradient maker</p>
@@ -907,6 +933,7 @@ export default function Page() {
             <li>Click the green anchor (or press <kbd className="bg-white/10 px-1 rounded">Enter</kbd>) to close the shape.</li>
             <li>Double-click a shape to insert an anchor.</li>
             <li>Alt-click an anchor to delete it.</li>
+            <li><kbd className="bg-white/10 px-1 rounded">Cmd/Ctrl</kbd>-drag a shape to move it.</li>
             <li><kbd className="bg-white/10 px-1 rounded">Delete</kbd> removes the selected shape.</li>
           </ul>
         </Section>
