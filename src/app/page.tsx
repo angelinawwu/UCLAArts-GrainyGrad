@@ -150,7 +150,10 @@ export default function Page() {
   const [blur, setBlur] = useState(110);
   const [grain, setGrain] = useState(0.55);
   const [grainScale, setGrainScale] = useState(1.6);
-  const [exportSize, setExportSize] = useState(1500);
+  const [exportW, setExportW] = useState(1500);
+  const [exportH, setExportH] = useState(1000);
+  const [exportWInput, setExportWInput] = useState("1500");
+  const [exportHInput, setExportHInput] = useState("1000");
   const [propKey, setPropKey] = useState<string>("3-2");
   const proportion = PROPORTIONS.find((p) => p.key === propKey) ?? PROPORTIONS[0];
   const [vbX, vbY, vbW, vbH] = proportion.vb;
@@ -438,8 +441,6 @@ export default function Page() {
 
   // ---- Export to canvas (matches the chosen Proportions) ----
   const renderToCanvas = useCallback(async (): Promise<HTMLCanvasElement> => {
-    const exportW = exportSize;
-    const exportH = Math.round((exportSize * vbH) / vbW);
     const canvas = document.createElement("canvas");
     canvas.width = exportW;
     canvas.height = exportH;
@@ -491,7 +492,7 @@ export default function Page() {
     URL.revokeObjectURL(url);
 
     return canvas;
-  }, [shapes, bg, blur, grain, grainScale, exportSize, vbX, vbY, vbW, vbH]);
+  }, [shapes, bg, blur, grain, grainScale, exportW, exportH, vbX, vbY, vbW, vbH]);
 
   const onCopy = async () => {
     try {
@@ -835,6 +836,13 @@ export default function Page() {
                 setShapes(defaultShapesFor(next));
                 setSelectedId(null);
                 setDraftId(null);
+                const nextProp = PROPORTIONS.find((p) => p.key === next) ?? PROPORTIONS[0];
+                const [, , nW, nH] = nextProp.vb;
+                const newH = Math.round((1500 * nH) / nW);
+                setExportW(1500);
+                setExportH(newH);
+                setExportWInput("1500");
+                setExportHInput(String(newH));
               }}
               className="bg-white/5 text-white text-xs rounded px-2 py-1 border border-white/10"
             >
@@ -846,20 +854,72 @@ export default function Page() {
             </select>
           </Row>
           <Row label="Export size">
-            <select
-              value={exportSize}
-              onChange={(e) => setExportSize(parseInt(e.target.value))}
-              className="bg-white/5 text-white text-xs rounded px-2 py-1 border border-white/10"
-            >
-              {[600, 1000, 1500, 2400, 3000].map((w) => {
-                const h = Math.round((w * vbH) / vbW);
-                return (
-                  <option key={w} value={w}>
-                    {w} × {h}
-                  </option>
-                );
-              })}
-            </select>
+            <div className="flex flex-col gap-1.5 items-end">
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={exportWInput}
+                  onChange={(e) => {
+                    setExportWInput(e.target.value);
+                    const n = parseInt(e.target.value);
+                    if (n > 0 && n <= 10000) setExportW(n);
+                  }}
+                  onBlur={() => {
+                    const n = parseInt(exportWInput);
+                    if (!n || n <= 0) { setExportWInput(String(exportW)); return; }
+                    const clamped = Math.min(10000, Math.max(1, n));
+                    setExportW(clamped);
+                    setExportWInput(String(clamped));
+                  }}
+                  className="w-16 bg-white/5 text-white text-xs rounded px-2 py-1 border border-white/10 font-mono text-center"
+                />
+                <span className="text-white/30 text-xs">×</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={exportHInput}
+                  onChange={(e) => {
+                    setExportHInput(e.target.value);
+                    const n = parseInt(e.target.value);
+                    if (n > 0 && n <= 10000) setExportH(n);
+                  }}
+                  onBlur={() => {
+                    const n = parseInt(exportHInput);
+                    if (!n || n <= 0) { setExportHInput(String(exportH)); return; }
+                    const clamped = Math.min(10000, Math.max(1, n));
+                    setExportH(clamped);
+                    setExportHInput(String(clamped));
+                  }}
+                  className="w-16 bg-white/5 text-white text-xs rounded px-2 py-1 border border-white/10 font-mono text-center"
+                />
+              </div>
+              <div className="flex items-center gap-1 flex-wrap justify-end">
+                {[600, 1000, 1500, 2400, 3000].map((w) => {
+                  const h = Math.round((w * vbH) / vbW);
+                  const active = exportW === w && exportH === h;
+                  return (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => {
+                        setExportW(w);
+                        setExportH(h);
+                        setExportWInput(String(w));
+                        setExportHInput(String(h));
+                      }}
+                      className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors duration-200 font-mono ${
+                        active
+                          ? "bg-white/20 border-white/30 text-white"
+                          : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/80"
+                      }`}
+                    >
+                      {w}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </Row>
         </Section>
 
